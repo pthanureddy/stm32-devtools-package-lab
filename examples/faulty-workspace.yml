@@ -1,0 +1,16 @@
+workspace:
+  name: faulty-firmware
+  target: stm32f407
+  toolchain:
+    compiler: arm-none-eabi-gcc
+    version: "12.3.1"
+packages:
+  - name: stm32f4-hal
+    version: "1.8.0"
+    family: stm32f4
+    source: registry
+    dependencies:
+      - missing-cmsis-core
+    artifact: stm32f4-hal-1.8.0.zip
+    sha256: "9301a2ffce0fdc5c8f1cf30500fda962e32ec9ee6c1f0b6562af8f0fd0608324"
+

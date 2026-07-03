@@ -1,0 +1,31 @@
+workspace:
+  name: motor-control-firmware
+  target: stm32f407
+  toolchain:
+    compiler: arm-none-eabi-gcc
+    version: "12.3.1"
+packages:
+  - name: cmsis-core
+    version: "5.9.0"
+    family: stm32f4
+    source: registry
+    artifact: cmsis-core-5.9.0.zip
+    sha256: "7c52adf5dd2b1d6a5df9bfe709baedb08f1a65ccfe5f47ccdf67274d87f6d05d"
+  - name: stm32f4-hal
+    version: "1.8.0"
+    family: stm32f4
+    source: registry
+    dependencies:
+      - cmsis-core
+    artifact: stm32f4-hal-1.8.0.zip
+    sha256: "9301a2ffce0fdc5c8f1cf30500fda962e32ec9ee6c1f0b6562af8f0fd0608324"
+  - name: motor-control-template
+    version: "0.4.2"
+    family: stm32f4
+    source: git
+    dependencies:
+      - cmsis-core
+      - stm32f4-hal
+    artifact: motor-control-template-0.4.2.tar.gz
+    sha256: "eeb88ca20a0a8c48bd5d1012eb6df327185a75fd52e58abf25fa5b4b91fe50a8"
+
