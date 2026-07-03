@@ -214,8 +214,7 @@ mod tests {
             source: PackageSource::Registry,
             dependencies: dependencies.into_iter().map(String::from).collect(),
             artifact: format!("{name}.zip"),
-            sha256: "7c52adf5dd2b1d6a5df9bfe709baedb08f1a65ccfe5f47ccdf67274d87f6d05d"
-                .to_string(),
+            sha256: "7c52adf5dd2b1d6a5df9bfe709baedb08f1a65ccfe5f47ccdf67274d87f6d05d".to_string(),
         }
     }
 

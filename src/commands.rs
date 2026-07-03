@@ -28,4 +28,3 @@ pub fn inspect_manifest(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", serde_json::to_string_pretty(&manifest)?);
     Ok(())
 }
-

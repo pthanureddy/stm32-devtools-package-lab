@@ -4,4 +4,3 @@ pub mod resolver;
 
 pub use manifest::{Manifest, ManifestError, Package, Workspace};
 pub use resolver::{InstallPlan, PlanStep, ResolverError};
-

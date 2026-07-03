@@ -118,8 +118,7 @@ mod tests {
             source: PackageSource::Registry,
             dependencies: dependencies.into_iter().map(String::from).collect(),
             artifact: format!("{name}.zip"),
-            sha256: "7c52adf5dd2b1d6a5df9bfe709baedb08f1a65ccfe5f47ccdf67274d87f6d05d"
-                .to_string(),
+            sha256: "7c52adf5dd2b1d6a5df9bfe709baedb08f1a65ccfe5f47ccdf67274d87f6d05d".to_string(),
         }
     }
 
@@ -142,7 +141,11 @@ mod tests {
         };
 
         let plan = InstallPlan::resolve(&manifest).unwrap();
-        let names: Vec<_> = plan.steps.iter().map(|step| step.package.as_str()).collect();
+        let names: Vec<_> = plan
+            .steps
+            .iter()
+            .map(|step| step.package.as_str())
+            .collect();
         assert_eq!(names, vec!["cmsis-core", "stm32f4-hal", "app-template"]);
     }
 }
