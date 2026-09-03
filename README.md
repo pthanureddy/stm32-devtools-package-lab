@@ -1,89 +1,125 @@
 # STM32 DevTools Package Lab
 
-Portfolio project for developer-tooling work relevant to STMicroelectronics
-STM32-style workflows. It demonstrates a Rust backend/core CLI, a TypeScript
-client library, package manifest validation, dependency resolution, automated
-tests, and Linux CI.
+A Rust and TypeScript developer-tools lab for package metadata, deterministic
+distribution assembly, and machine-readable integration. The Rust CLI validates
+STM32-style workspace manifests, resolves dependency order, and repacks an
+existing host-side distribution with product-specific files and configuration.
 
-This project is not affiliated with STMicroelectronics. It is a learning and
-portfolio lab built to practice the kind of software engineering used in
-developer tools such as package managers, configuration tooling, and IDE
-integration layers.
+This independent learning project is not affiliated with STMicroelectronics.
+It models developer-tooling and release-engineering concerns; it does not build,
+flash, or validate target firmware or hardware.
 
-## What It Does
+## Capabilities
 
-- Parses YAML or JSON package manifests for STM32-style development workspaces.
-- Validates package metadata, semantic versions, MCU families, dependencies,
-  artifacts, checksums, and toolchain configuration.
-- Builds a deterministic installation plan using topological dependency order.
-- Emits machine-readable JSON for integration with IDE extensions or internal
-  APIs.
-- Provides a TypeScript client for reading, validating, and summarizing the
-  same manifest format.
-- Runs automated Rust and TypeScript checks through GitHub Actions on Linux.
+- Parse and validate YAML or JSON package manifests, semantic versions, MCU
+  families, dependency references, artifact checksums, and toolchain metadata.
+- Produce a deterministic topological installation plan as JSON.
+- Merge a product overlay over a base distribution with explicit precedence.
+- Emit a reproducible `tar.gz`, a sorted per-file SHA-256/size/mode/provenance
+  manifest, and a byte-identical sidecar manifest.
+- Reject unsafe paths, links, special files, ambiguous file/directory
+  collisions, overlapping inputs, and outputs placed inside source trees.
+- Stage payload bytes while hashing and publish via temporary files.
+- Read, validate, and summarize the workspace manifest format from TypeScript.
+- Exercise Rust, TypeScript, Python verification, reproducibility, and dependency
+  audit gates in GitHub Actions.
 
-## Why This Project Exists
+## Quick start
 
-The target role focuses on software engineering for STM32 developer tools:
-Rust/C++, JavaScript/TypeScript, backend components, package-management
-infrastructure, internal APIs, Agile workflows, testing, maintainability, and
-root-cause analysis. This lab is a compact implementation of those themes.
-
-## Example Manifest
-
-```yaml
-workspace:
-  name: motor-control-firmware
-  target: stm32f407
-  toolchain:
-    compiler: arm-none-eabi-gcc
-    version: "12.3.1"
-packages:
-  - name: cmsis-core
-    version: "5.9.0"
-    family: stm32f4
-    source: registry
-    artifact: cmsis-core-5.9.0.zip
-    sha256: "7c52adf5dd2b1d6a5df9bfe709baedb08f1a65ccfe5f47ccdf67274d87f6d05d"
-  - name: stm32f4-hal
-    version: "1.8.0"
-    family: stm32f4
-    source: registry
-    dependencies:
-      - cmsis-core
-    artifact: stm32f4-hal-1.8.0.zip
-    sha256: "9301a2ffce0fdc5c8f1cf30500fda962e32ec9ee6c1f0b6562af8f0fd0608324"
-```
-
-## Rust CLI
+The repository pins Rust in `rust-toolchain.toml`.
 
 ```bash
-cargo run -- validate examples/stm32f4-workspace.yml
-cargo run -- plan examples/stm32f4-workspace.yml
-cargo run -- inspect examples/stm32f4-workspace.yml
+cargo run --locked -- validate examples/stm32f4-workspace.yml
+cargo run --locked -- plan examples/stm32f4-workspace.yml
+cargo run --locked -- inspect examples/stm32f4-workspace.yml
 ```
 
-## TypeScript Client
+Create the example product distribution:
+
+```bash
+cargo run --locked -- repack \
+  --base examples/repack/base \
+  --overlay examples/repack/overlay \
+  --config examples/repack/product.yml \
+  --output target/example/traction-control-unit.tar.gz
+```
+
+The command prints a JSON result containing output paths, archive and payload
+digests, file count, and total payload bytes. Unless `--manifest` is supplied,
+the sidecar is written to
+`target/example/traction-control-unit.tar.gz.manifest.json`.
+
+Verify the artifact independently with Python's standard library:
+
+```bash
+python scripts/verify_repack.py \
+  target/example/traction-control-unit.tar.gz \
+  target/example/traction-control-unit.tar.gz.manifest.json \
+  --base examples/repack/base \
+  --overlay examples/repack/overlay
+```
+
+Pass `--force` to replace existing regular archive and sidecar files. Without
+it, the command fails safely rather than overwriting release output.
+
+## Repack configuration
+
+```yaml
+schema_version: 1
+product:
+  name: traction-control-unit
+  release: "2.4.0"
+base_distribution:
+  name: embedded-linux-sdk
+  release: "12.3.1"
+target: stm32mp157
+executable_paths:
+  - bin/start-product.sh
+labels:
+  configuration: vehicle-a
+  release_channel: validated
+```
+
+Overlay files replace base files at exactly matching relative paths. Other
+files from both trees remain in the result. Archive permissions come only from
+`executable_paths`: declared files use `0755`, and all other payload files use
+`0644`. This avoids host-permission differences in reproducible builds.
+
+## TypeScript client
 
 ```bash
 cd clients/typescript
-npm install
-npm test
+npm ci
 npm run build
+npm test
+npm audit --audit-level=high
 ```
 
-## Repository Layout
+## Design and evidence
+
+- [Repack specification](docs/repack-specification.md)
+- [Architecture and determinism](docs/architecture.md)
+- [Verification strategy](docs/verification.md)
+- [Scope and limitations](docs/limitations.md)
+
+## Repository layout
 
 ```text
-src/                  Rust manifest parser, validator, resolver, and CLI
-examples/             Valid and intentionally faulty STM32-style manifests
+src/                  Rust parser, resolver, deterministic repacker, and CLI
+examples/             Workspace manifests plus base/overlay/config fixtures
+scripts/              Independent Python artifact verifier
 clients/typescript/   TypeScript manifest client and tests
-.github/workflows/    Linux CI for Rust and TypeScript checks
+docs/                  Specification, architecture, verification, limitations
+.github/workflows/    Linux CI and end-to-end reproducibility checks
 ```
 
-## Resume-Ready Summary
+## Local quality checks
 
-Built a Rust and TypeScript developer-tools lab for STM32-style package
-management, implementing manifest parsing, semantic validation, dependency
-resolution, JSON output, automated tests, and Linux GitHub Actions CI.
+```bash
+cargo fmt --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
+```
 
+See [Scope and limitations](docs/limitations.md) before applying the example to
+a production release process.

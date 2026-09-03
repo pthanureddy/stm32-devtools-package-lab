@@ -1,0 +1,2 @@
+sdk_release=12.3.1
+target=stm32mp157

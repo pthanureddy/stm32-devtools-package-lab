@@ -4,4 +4,7 @@ dist/
 coverage/
 *.log
 .DS_Store
+.tools/
+__pycache__/
+*.pyc
 
