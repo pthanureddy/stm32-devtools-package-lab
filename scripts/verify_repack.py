@@ -8,6 +8,7 @@ import hashlib
 import json
 import sys
 import tarfile
+import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -31,7 +32,12 @@ def safe_member_name(name: str) -> None:
         or path.is_absolute()
         or "\\" in name
         or any(part in {"", ".", ".."} for part in raw_parts)
-        or any(":" in part or any(ord(char) < 32 for char in part) for part in raw_parts)
+        or any(
+            ":" in part
+            or any(unicodedata.category(char) in {"Cc", "Cs"} for char in part)
+            for part in raw_parts
+        )
+        or len(name.encode("utf-8")) > 100
     ):
         raise VerificationError(f"unsafe archive member path: {name!r}")
 

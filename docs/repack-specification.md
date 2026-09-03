@@ -46,7 +46,8 @@ irrelevant executable-list ordering do not alter the package identity.
 ## Safety invariants
 
 - Absolute paths, `.`/`..`, empty segments, backslashes, colons, control
-  characters, and non-UTF-8 archive names are rejected.
+  characters, non-UTF-8 archive names, and names above the canonical 100-byte
+  tar-header limit are rejected.
 - Symlinks and non-regular special files are rejected in either input tree.
 - Base and overlay trees may not be equal, nested, or otherwise overlap.
 - Archive and sidecar outputs may not be placed inside either input tree.

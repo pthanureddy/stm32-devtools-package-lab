@@ -420,7 +420,14 @@ fn validate_relative_path(value: &str) -> Result<String, RepackError> {
         validate_archive_segment(value, segment)?;
         segments.push(segment);
     }
-    Ok(segments.join("/"))
+    let normalized = segments.join("/");
+    if normalized.len() > 100 {
+        return Err(unsafe_path(
+            value,
+            "UTF-8 path must not exceed 100 bytes for the canonical tar header",
+        ));
+    }
+    Ok(normalized)
 }
 
 fn validate_archive_segment(full_path: &str, segment: &str) -> Result<(), RepackError> {
@@ -838,31 +845,24 @@ fn write_archive(
         .write(output, Compression::best());
     let mut archive = TarBuilder::new(encoder);
 
-    let mut names: Vec<_> = prepared
-        .iter()
-        .map(|file| file.record.path.as_str())
-        .collect();
-    names.push(EMBEDDED_MANIFEST_PATH);
-    names.sort_unstable();
-
-    for name in names {
-        if name == EMBEDDED_MANIFEST_PATH {
-            append_bytes(&mut archive, name, manifest_bytes, 0o644)?;
-        } else {
-            let file = prepared
-                .iter()
-                .find(|file| file.record.path == name)
-                .expect("archive names originate from prepared files");
-            let mut input = File::open(&file.staged_path)
-                .map_err(|source| io_error("open staged payload", &file.staged_path, source))?;
-            append_reader(
-                &mut archive,
-                name,
-                &mut input,
-                file.record.size,
-                file.archive_mode,
-            )?;
+    let mut manifest_written = false;
+    for file in prepared {
+        if !manifest_written && EMBEDDED_MANIFEST_PATH < file.record.path.as_str() {
+            append_bytes(&mut archive, EMBEDDED_MANIFEST_PATH, manifest_bytes, 0o644)?;
+            manifest_written = true;
         }
+        let mut input = File::open(&file.staged_path)
+            .map_err(|source| io_error("open staged payload", &file.staged_path, source))?;
+        append_reader(
+            &mut archive,
+            &file.record.path,
+            &mut input,
+            file.record.size,
+            file.archive_mode,
+        )?;
+    }
+    if !manifest_written {
+        append_bytes(&mut archive, EMBEDDED_MANIFEST_PATH, manifest_bytes, 0o644)?;
     }
 
     archive
@@ -1055,6 +1055,16 @@ labels:
             validate_relative_path("config/product/settings.toml").unwrap(),
             "config/product/settings.toml"
         );
+    }
+
+    #[test]
+    fn rejects_paths_that_exceed_the_canonical_tar_name_field() {
+        let path = format!("{}.txt", "a".repeat(97));
+        assert_eq!(path.len(), 101);
+        assert!(matches!(
+            validate_relative_path(&path),
+            Err(RepackError::UnsafePath { .. })
+        ));
     }
 
     #[test]

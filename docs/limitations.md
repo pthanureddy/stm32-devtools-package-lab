@@ -14,9 +14,10 @@
   consistent, but the tool is not a sandbox for adversarial concurrent writers.
 - Reproducibility assumes the same input bytes, normalized configuration,
   product version of this CLI, and compression implementation.
-- A failure during the final two-file publish can leave an archive without its
-  sidecar. The archive still contains its manifest and can be checked with the
-  independent verifier.
+- Archive and sidecar publication is not transactional as a unit; a filesystem
+  failure between the two renames can leave an archive without its sidecar.
+- With `--force`, the prior output pair is removed before the new pair is
+  published, so a failed replacement may require recovery from another copy.
 - The example models distribution assembly only. It does not claim firmware,
   RTOS, hardware, bootloader, railway-certification, cybersecurity-compliance,
   or target-device validation.
