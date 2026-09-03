@@ -1,0 +1,13 @@
+schema_version: 1
+product:
+  name: traction-control-unit
+  release: "2.4.0"
+base_distribution:
+  name: embedded-linux-sdk
+  release: "12.3.1"
+target: stm32mp157
+executable_paths:
+  - bin/start-product.sh
+labels:
+  configuration: vehicle-a
+  release_channel: validated
