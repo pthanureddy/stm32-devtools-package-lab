@@ -6,6 +6,8 @@ The repack module has focused tests for:
 
 - Unix and Windows-style absolute paths, parent traversal, and backslashes;
 - portable path acceptance and configuration schema validation;
+- required schema version, unknown configuration fields, and canonical
+  executable-list ordering;
 - duplicate or missing executable declarations;
 - unsupported configuration formats;
 - overlay precedence and recorded source provenance;
@@ -14,6 +16,7 @@ The repack module has focused tests for:
 - deterministic executable and regular-file modes;
 - safe refusal and explicit replacement of existing outputs;
 - rejection of outputs inside input roots;
+- protection of the configuration file and reserved embedded-manifest path;
 - file/directory collisions; and
 - symlink rejection on Unix CI hosts.
 

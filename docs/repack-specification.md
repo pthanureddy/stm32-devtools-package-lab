@@ -15,7 +15,8 @@ execute firmware.
 
 - `--base`: readable directory containing an existing distribution.
 - `--overlay`: readable directory containing product additions/replacements.
-- `--config`: YAML or JSON configuration using schema version 1.
+- `--config`: YAML or JSON configuration with an explicit schema version 1;
+  unknown fields are rejected so misspelled controls cannot be ignored.
 - `--output`: destination archive, conventionally ending in `.tar.gz`.
 - `--manifest`: optional sidecar path. The default is
   `<output>.manifest.json`.
@@ -39,7 +40,8 @@ Every other payload file receives mode `0644`.
 9. Add payload files and the embedded manifest to the tar in lexical path order.
 
 The configuration digest is computed from its normalized JSON representation,
-so YAML formatting changes alone do not alter the package identity.
+including sorted executable paths, so YAML formatting and semantically
+irrelevant executable-list ordering do not alter the package identity.
 
 ## Safety invariants
 
@@ -48,6 +50,9 @@ so YAML formatting changes alone do not alter the package identity.
 - Symlinks and non-regular special files are rejected in either input tree.
 - Base and overlay trees may not be equal, nested, or otherwise overlap.
 - Archive and sidecar outputs may not be placed inside either input tree.
+- The embedded `PACKAGE-MANIFEST.json` path and its case-insensitive descendants
+  are reserved and cannot be supplied by either payload layer.
+- Archive and sidecar outputs may not replace the configuration file.
 - Existing outputs are preserved unless `--force` is supplied.
 - Payload bytes are staged while hashing, then archived from staging. The hash
   therefore describes the exact bytes written rather than a second source read.

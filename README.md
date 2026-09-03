@@ -17,7 +17,7 @@ flash, or validate target firmware or hardware.
 - Merge a product overlay over a base distribution with explicit precedence.
 - Emit a reproducible `tar.gz`, a sorted per-file SHA-256/size/mode/provenance
   manifest, and a byte-identical sidecar manifest.
-- Reject unsafe paths, links, special files, ambiguous file/directory
+- Reject unsafe paths, symbolic links, special files, ambiguous file/directory
   collisions, overlapping inputs, and outputs placed inside source trees.
 - Stage payload bytes while hashing and publish via temporary files.
 - Read, validate, and summarize the workspace manifest format from TypeScript.

@@ -24,15 +24,20 @@ def sha256(data: bytes) -> str:
 
 
 def safe_member_name(name: str) -> None:
+    raw_parts = name.split("/")
     path = PurePosixPath(name)
     if (
         not name
         or path.is_absolute()
         or "\\" in name
-        or any(part in {"", ".", ".."} for part in path.parts)
-        or any(":" in part or any(ord(char) < 32 for char in part) for part in path.parts)
+        or any(part in {"", ".", ".."} for part in raw_parts)
+        or any(":" in part or any(ord(char) < 32 for char in part) for part in raw_parts)
     ):
         raise VerificationError(f"unsafe archive member path: {name!r}")
+
+
+def reserved_payload_name(name: str) -> bool:
+    return name.split("/", 1)[0].casefold() == EMBEDDED_MANIFEST.casefold()
 
 
 def canonical_payload_digest(records: list[dict[str, Any]]) -> str:
@@ -97,6 +102,10 @@ def verify(
         member_modes: dict[str, int] = {}
         for member in members:
             safe_member_name(member.name)
+            if member.name != EMBEDDED_MANIFEST and reserved_payload_name(member.name):
+                raise VerificationError(
+                    f"payload uses the reserved embedded-manifest path: {member.name}"
+                )
             if not member.isfile():
                 raise VerificationError(f"non-regular tar member: {member.name}")
             if member.uid != 0 or member.gid != 0 or member.mtime != 0:
@@ -135,6 +144,8 @@ def verify(
     for record in records:
         path = record["path"]
         safe_member_name(path)
+        if reserved_payload_name(path):
+            raise VerificationError(f"manifest contains a reserved payload path: {path}")
         payload = content[path]
         if record.get("layer") not in {"base", "overlay"}:
             raise VerificationError(f"invalid layer for {path}")

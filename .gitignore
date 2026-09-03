@@ -5,6 +5,7 @@ coverage/
 *.log
 .DS_Store
 .tools/
+.tmp/
 __pycache__/
 *.pyc
 

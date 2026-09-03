@@ -26,8 +26,8 @@ const EMBEDDED_MANIFEST_PATH: &str = "PACKAGE-MANIFEST.json";
 const COPY_BUFFER_SIZE: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RepackConfig {
-    #[serde(default = "default_config_schema_version")]
     pub schema_version: u32,
     pub product: ProductIdentity,
     pub base_distribution: DistributionIdentity,
@@ -39,12 +39,14 @@ pub struct RepackConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ProductIdentity {
     pub name: String,
     pub release: Version,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct DistributionIdentity {
     pub name: String,
     pub release: Version,
@@ -137,6 +139,8 @@ pub enum RepackError {
     InvalidConfig(String),
     #[error("input '{path}' is not a directory")]
     InputNotDirectory { path: PathBuf },
+    #[error("input '{path}' is not a regular file")]
+    InputNotFile { path: PathBuf },
     #[error(
         "base and overlay directory trees must not overlap: '{}' and '{}'",
         base.display(),
@@ -151,12 +155,19 @@ pub enum RepackError {
     UnsupportedFileType { path: String },
     #[error("payload path collision between file '{file}' and descendant '{descendant}'")]
     PathCollision { file: String, descendant: String },
+    #[error("payload path is reserved for the embedded release manifest: '{0}'")]
+    ReservedManifestPath(String),
     #[error("configured executable path is not present in the merged payload: '{0}'")]
     MissingExecutable(String),
     #[error("output path must not be inside an input tree: '{}'", path.display())]
     OutputInsideInput { path: PathBuf },
     #[error("archive and sidecar manifest paths must be different")]
     DuplicateOutputPaths,
+    #[error(
+        "output path must not replace the repack configuration: '{}'",
+        path.display()
+    )]
+    OutputOverlapsConfig { path: PathBuf },
     #[error("output already exists (pass --force to replace it): '{}'", path.display())]
     OutputExists { path: PathBuf },
     #[error("archive entry exceeds addressable memory on this host: '{0}'")]
@@ -180,10 +191,6 @@ struct PreparedFile {
     staged_path: PathBuf,
     record: FileRecord,
     archive_mode: u32,
-}
-
-fn default_config_schema_version() -> u32 {
-    CONFIG_SCHEMA_VERSION
 }
 
 impl RepackConfig {
@@ -232,7 +239,14 @@ impl RepackConfig {
     }
 
     fn canonical_sha256(&self) -> Result<String, RepackError> {
-        let bytes = serde_json::to_vec(self)?;
+        let mut canonical = self.clone();
+        canonical.executable_paths = self
+            .executable_paths
+            .iter()
+            .map(|path| validate_relative_path(path))
+            .collect::<Result<_, _>>()?;
+        canonical.executable_paths.sort();
+        let bytes = serde_json::to_vec(&canonical)?;
         Ok(sha256_bytes(&bytes))
     }
 }
@@ -241,7 +255,8 @@ impl RepackConfig {
 /// and write the same deterministic manifest both inside the archive and as a
 /// sidecar JSON file.
 pub fn repack_distribution(request: &RepackRequest) -> Result<RepackResult, RepackError> {
-    let config = RepackConfig::from_path(&request.config_path)?;
+    let config_path = canonical_input_file(&request.config_path)?;
+    let config = RepackConfig::from_path(&config_path)?;
     config.validate()?;
 
     let base = canonical_input_directory(&request.base_dir)?;
@@ -254,6 +269,16 @@ pub fn repack_distribution(request: &RepackRequest) -> Result<RepackResult, Repa
     let sidecar = resolve_output_path(&request.manifest_path)?;
     if same_output_path(&output, &sidecar) {
         return Err(RepackError::DuplicateOutputPaths);
+    }
+    if same_output_path(&output, &config_path) {
+        return Err(RepackError::OutputOverlapsConfig {
+            path: output.clone(),
+        });
+    }
+    if same_output_path(&sidecar, &config_path) {
+        return Err(RepackError::OutputOverlapsConfig {
+            path: sidecar.clone(),
+        });
     }
     reject_output_inside_inputs(&output, &base, &overlay)?;
     reject_output_inside_inputs(&sidecar, &base, &overlay)?;
@@ -321,18 +346,8 @@ pub fn repack_distribution(request: &RepackRequest) -> Result<RepackResult, Repa
         remove_existing_file(&sidecar)?;
         remove_existing_file(&output)?;
     }
-    archive_temp
-        .persist(&output)
-        .map_err(|error| RepackError::Persist {
-            path: output.clone(),
-            source: error.error,
-        })?;
-    sidecar_temp
-        .persist(&sidecar)
-        .map_err(|error| RepackError::Persist {
-            path: sidecar.clone(),
-            source: error.error,
-        })?;
+    persist_output(archive_temp, &output, request.force)?;
+    persist_output(sidecar_temp, &sidecar, request.force)?;
 
     Ok(RepackResult {
         archive: output,
@@ -435,6 +450,22 @@ fn canonical_input_directory(path: &Path) -> Result<PathBuf, RepackError> {
     }
     if !metadata.is_dir() {
         return Err(RepackError::InputNotDirectory {
+            path: path.to_path_buf(),
+        });
+    }
+    fs::canonicalize(path).map_err(|source| io_error("canonicalize", path, source))
+}
+
+fn canonical_input_file(path: &Path) -> Result<PathBuf, RepackError> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|source| io_error("inspect", path, source))?;
+    if metadata.file_type().is_symlink() {
+        return Err(RepackError::Symlink {
+            path: path.display().to_string(),
+        });
+    }
+    if !metadata.is_file() {
+        return Err(RepackError::InputNotFile {
             path: path.to_path_buf(),
         });
     }
@@ -571,6 +602,22 @@ fn remove_existing_file(path: &Path) -> Result<(), RepackError> {
     Ok(())
 }
 
+fn persist_output(
+    temporary: NamedTempFile,
+    destination: &Path,
+    allow_replace: bool,
+) -> Result<(), RepackError> {
+    let result = if allow_replace {
+        temporary.persist(destination)
+    } else {
+        temporary.persist_noclobber(destination)
+    };
+    result.map(|_| ()).map_err(|error| RepackError::Persist {
+        path: destination.to_path_buf(),
+        source: error.error,
+    })
+}
+
 fn collect_layer(
     root: &Path,
     layer: Layer,
@@ -596,6 +643,9 @@ fn collect_layer(
             .strip_prefix(root)
             .expect("walked entries remain under the requested root");
         let archive_path = path_to_archive(relative)?;
+        if is_reserved_manifest_path(&archive_path) {
+            return Err(RepackError::ReservedManifestPath(archive_path));
+        }
         let file_type = entry.file_type();
         if file_type.is_symlink() {
             return Err(RepackError::Symlink { path: archive_path });
@@ -616,6 +666,12 @@ fn collect_layer(
         );
     }
     Ok(())
+}
+
+fn is_reserved_manifest_path(path: &str) -> bool {
+    path.split('/')
+        .next()
+        .is_some_and(|segment| segment.eq_ignore_ascii_case(EMBEDDED_MANIFEST_PATH))
 }
 
 fn path_to_archive(path: &Path) -> Result<String, RepackError> {
@@ -1013,6 +1069,51 @@ labels:
     }
 
     #[test]
+    fn requires_explicit_schema_version_and_rejects_unknown_fields() {
+        let fixture = Fixture::new();
+        let original = fs::read_to_string(&fixture.config).unwrap();
+
+        fs::write(
+            &fixture.config,
+            original.replacen("schema_version: 1\n", "", 1),
+        )
+        .unwrap();
+        assert!(matches!(
+            RepackConfig::from_path(&fixture.config),
+            Err(RepackError::InvalidYaml(_))
+        ));
+
+        fs::write(
+            &fixture.config,
+            original.replacen(
+                "schema_version: 1\n",
+                "schema_version: 1\nexecutable_path: bin/start.sh\n",
+                1,
+            ),
+        )
+        .unwrap();
+        assert!(matches!(
+            RepackConfig::from_path(&fixture.config),
+            Err(RepackError::InvalidYaml(_))
+        ));
+    }
+
+    #[test]
+    fn configuration_digest_normalizes_executable_order() {
+        let fixture = Fixture::new();
+        let mut first = RepackConfig::from_path(&fixture.config).unwrap();
+        first
+            .executable_paths
+            .push("config/settings.ini".to_string());
+        let mut second = first.clone();
+        second.executable_paths.reverse();
+        assert_eq!(
+            first.canonical_sha256().unwrap(),
+            second.canonical_sha256().unwrap()
+        );
+    }
+
+    #[test]
     fn rejects_duplicate_executable_paths() {
         let fixture = Fixture::new();
         let mut config = RepackConfig::from_path(&fixture.config).unwrap();
@@ -1121,6 +1222,21 @@ labels:
     }
 
     #[test]
+    fn no_clobber_persist_preserves_a_concurrently_created_output() {
+        let root = TempDir::new().unwrap();
+        let destination = root.path().join("release.tar.gz");
+        fs::write(&destination, b"existing\n").unwrap();
+        let mut temporary = NamedTempFile::new_in(root.path()).unwrap();
+        temporary.write_all(b"replacement\n").unwrap();
+
+        assert!(matches!(
+            persist_output(temporary, &destination, false),
+            Err(RepackError::Persist { .. })
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), b"existing\n");
+    }
+
+    #[test]
     fn force_replaces_existing_outputs() {
         let fixture = Fixture::new();
         repack_distribution(&fixture.request()).unwrap();
@@ -1143,6 +1259,30 @@ labels:
     }
 
     #[test]
+    fn outputs_cannot_replace_the_configuration_file() {
+        let fixture = Fixture::new();
+        let original = fs::read(&fixture.config).unwrap();
+
+        let mut archive_request = fixture.request();
+        archive_request.output_path = fixture.config.clone();
+        archive_request.force = true;
+        assert!(matches!(
+            repack_distribution(&archive_request),
+            Err(RepackError::OutputOverlapsConfig { .. })
+        ));
+        assert_eq!(fs::read(&fixture.config).unwrap(), original);
+
+        let mut sidecar_request = fixture.request();
+        sidecar_request.manifest_path = fixture.config.clone();
+        sidecar_request.force = true;
+        assert!(matches!(
+            repack_distribution(&sidecar_request),
+            Err(RepackError::OutputOverlapsConfig { .. })
+        ));
+        assert_eq!(fs::read(&fixture.config).unwrap(), original);
+    }
+
+    #[test]
     fn rejected_nested_output_does_not_modify_input_tree() {
         let fixture = Fixture::new();
         let nested = fixture.base.join("generated/release/product.tar.gz");
@@ -1153,6 +1293,29 @@ labels:
             Err(RepackError::OutputInsideInput { .. })
         ));
         assert!(!fixture.base.join("generated").exists());
+    }
+
+    #[test]
+    fn embedded_manifest_path_and_descendants_are_reserved() {
+        let fixture = Fixture::new();
+        fs::write(
+            fixture.base.join(EMBEDDED_MANIFEST_PATH),
+            b"payload collision\n",
+        )
+        .unwrap();
+        assert!(matches!(
+            repack_distribution(&fixture.request()),
+            Err(RepackError::ReservedManifestPath(_))
+        ));
+
+        let second = Fixture::new();
+        let reserved_directory = second.overlay.join("package-manifest.JSON");
+        fs::create_dir_all(&reserved_directory).unwrap();
+        fs::write(reserved_directory.join("child.txt"), b"descendant\n").unwrap();
+        assert!(matches!(
+            repack_distribution(&second.request()),
+            Err(RepackError::ReservedManifestPath(_))
+        ));
     }
 
     #[test]
