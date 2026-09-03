@@ -100,7 +100,7 @@ impl Manifest {
             .to_ascii_lowercase();
 
         let manifest = match extension.as_str() {
-            "yaml" | "yml" => serde_yaml::from_str(&content)?,
+            "yaml" | "yml" => serde_yaml_ng::from_str(&content)?,
             "json" => serde_json::from_str(&content)?,
             other => {
                 return Err(Box::new(ManifestError::UnsupportedExtension(

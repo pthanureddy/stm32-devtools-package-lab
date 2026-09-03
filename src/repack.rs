@@ -132,7 +132,7 @@ pub enum RepackError {
     #[error("unsupported configuration extension '{0}', expected yaml, yml, or json")]
     UnsupportedConfigExtension(String),
     #[error("invalid YAML configuration: {0}")]
-    InvalidYaml(#[from] serde_yaml::Error),
+    InvalidYaml(#[from] serde_yaml_ng::Error),
     #[error("invalid JSON configuration: {0}")]
     InvalidJson(#[from] serde_json::Error),
     #[error("invalid repack configuration: {0}")]
@@ -203,7 +203,7 @@ impl RepackConfig {
             .to_ascii_lowercase();
 
         let config = match extension.as_str() {
-            "yaml" | "yml" => serde_yaml::from_str(&content)?,
+            "yaml" | "yml" => serde_yaml_ng::from_str(&content)?,
             "json" => serde_json::from_str(&content)?,
             other => return Err(RepackError::UnsupportedConfigExtension(other.to_string())),
         };
